@@ -1,7 +1,6 @@
 import os
 import time
 import requests  # 🎯 記得在環境中 pip install requests
-from datetime import datetime
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
@@ -26,12 +25,6 @@ MARKETS_CONFIG = [
         "url": "https://mis.twse.com.tw/stock/various-areas/etf-price/value-disclosure-etf?lang=zhHant"
     }
 ]
-
-def get_taiwan_time_str():
-    """產生執行當下的 [民國年/月/日][時:分] 格式字串"""
-    now = datetime.now()
-    tw_year = now.year - 1911
-    return f"[{tw_year:03d}/{now.strftime('%m/%d')}][{now.strftime('%H:%M')}]"
 
 def parse_market_html(html, market_name):
     """專門處理單一網頁的 HTML 解析、欄位搜尋與折溢價篩選"""
@@ -61,7 +54,7 @@ def parse_market_html(html, market_name):
                 code_idx = i
             elif "折溢價" in h:
                 premium_idx = i
-            elif "時間" in h: # 🎯 自動定位最右側的「資料時間」欄位
+            elif "時間" in h: 
                 time_idx = i
                 
         if code_idx == -1 or premium_idx == -1 or time_idx == -1:
@@ -81,7 +74,7 @@ def parse_market_html(html, market_name):
             if len(cols) > max_idx:
                 etf_name = cols[code_idx].text.strip()
                 premium_str = cols[premium_idx].text.strip()
-                data_time = cols[time_idx].text.strip() # 抓取資料時間
+                data_time = cols[time_idx].text.strip() 
                 
                 if etf_name and premium_str:
                     try:
@@ -93,7 +86,7 @@ def parse_market_html(html, market_name):
                                 "市場": market_name,
                                 "ETF代號/名稱": etf_name, 
                                 "預估折溢價幅度": premium_str,
-                                "資料時間": data_time # 儲存至資料字典
+                                "資料時間": data_time 
                             })
                     except ValueError:
                         pass
@@ -137,12 +130,11 @@ def scrape_all_markets():
 
 def send_line_message(msg_text):
     """透過 LINE Messaging API 發送 Push Message"""
-    # 從環境變數讀取密鑰，確保安全性
     access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-    to_id = os.getenv("LINE_TO_ID")   # 可以是 User ID 或 Group ID
+    to_id = os.getenv("LINE_TO_ID")   
     
     if not access_token or not to_id:
-        print("❌ 找不到 LINE 憑證環境變數，取消發送發送。")
+        print("❌ 找不到 LINE 憑證環境變數，取消發送。")
         return
 
     url = "https://api.line.me/v2/bot/message/push"
@@ -168,15 +160,21 @@ def send_line_message(msg_text):
 
 if __name__ == "__main__":
     data = scrape_all_markets()
-    run_timestamp = get_taiwan_time_str()
     
-    # 🎯 開始組裝 LINE 訊息字串
-    message_lines = [f"{run_timestamp} 📈 折溢價異常監控清單："]
+    # 🎯 開始組裝全新的多行 LINE 訊息字串
+    message_lines = ["📈 折溢價異常監控清單："]
 
     for cat, items in data.items():
         message_lines.append(f"\n📍 {cat}")
         for item in items: 
-            message_lines.append(f"   [{item['市場']}] {item['ETF代號/名稱']} | 折溢價: {item['預估折溢價幅度']} (資料時間: {item['資料時間']})")
+            # 將單一檔 ETF 拆解成多行排版，並在最後留一行空行 (\n) 區隔下一檔 ETF
+            etf_block = (
+                f"[{item['市場']}] \n"
+                f"{item['ETF代號/名稱']} \n"
+                f"折溢價: {item['預估折溢價幅度']} \n"
+                f"(資料時間: {item['資料時間']})\n"
+            )
+            message_lines.append(etf_block)
             
     full_message = "\n".join(message_lines)
     
