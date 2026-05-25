@@ -64,7 +64,7 @@ def parse_market_html(html, market_name):
         rows = tbody.find_all("tr") if tbody else table.find_all("tr")[1:]
         
         # 篩選門檻 (歐美時區 5%，其他 2%)
-        threshold = 5.0 if "歐美時區" in category else 2.0
+        threshold = 5.0 if "歐美時區" in category or "全球時區" in category else 2.0
         
         category_data = []
         for row in rows:
