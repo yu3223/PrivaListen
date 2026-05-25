@@ -1,11 +1,14 @@
 name: Run ETF Premium Scraper
 
 on:
-  # 1. 支援手動點擊執行
   workflow_dispatch:
-  # 2. 定時排程：每週一至週五，台灣時間 AM 09:03 到 PM 13:03，每半小時跑一次
   schedule:
-    - cron: '*/20 0-5 * * 1-5'  
+    # 涵蓋台灣時間 09:05 到 12:35 (對應 UTC 01:00 到 04:59)
+    # 每個小時的 05分 和 35分 執行
+    - cron: '5,35 1-4 * * 1-5'
+    
+    # 單獨指定台灣時間 13:05 (對應 UTC 05:05)
+    - cron: '5 5 * * 1-5' 
 
 jobs:
   run-scraper:
