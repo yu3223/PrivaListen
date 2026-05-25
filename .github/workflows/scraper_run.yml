@@ -3,6 +3,7 @@ name: Run ETF Premium Scraper
 on:
   workflow_dispatch:
   schedule:
+    # Force registration of schedule
     # 涵蓋台灣時間 09:05 到 12:35 (對應 UTC 01:00 到 04:59)
     # 每個小時的 05分 和 35分 執行
     - cron: '5,35 1-4 * * 1-5'
