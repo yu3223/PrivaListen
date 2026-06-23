@@ -128,40 +128,32 @@ def scrape_all_markets():
     final_data = {k: v for k, v in aggregated_data.items() if v}
     return final_data
 
-def send_line_message(msg_text):
-    """透過 LINE Messaging API 發送 Push Message"""
-    access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-    to_id = os.getenv("LINE_TO_ID")   
+def send_telegram_message(msg_text):
+    """發送訊息到 Telegram"""
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     
-    if not access_token or not to_id:
-        print("❌ 找不到 LINE 憑證環境變數，取消發送。")
+    if not bot_token or not chat_id:
+        print("❌ 未設定 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID")
         return
 
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}"
-    }
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
-        "to": to_id,
-        "messages": [
-            {
-                "type": "text",
-                "text": msg_text
-            }
-        ]
+        "chat_id": chat_id,
+        "text": msg_text
     }
     
-    response = requests.post(url, json=payload, headers=headers)
-    if response.status_code == 200:
-        print("🚀 LINE 訊息發送成功！")
-    else:
-        print(f"❌ LINE 發送失敗，狀態碼: {response.status_code}, 回傳內容: {response.text}")
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        print("✅ Telegram 發送成功！")
+    except Exception as e:
+        print(f"❌ Telegram 發送失敗: {e}")
 
 if __name__ == "__main__":
     data = scrape_all_markets()
     
-    # 🎯 開始組裝全新的多行 LINE 訊息字串
+    # 🎯 開始組裝全新的多行訊息字串
     message_lines = ["📈 折溢價異常監控清單："]
 
     for cat, items in data.items():
@@ -182,5 +174,5 @@ if __name__ == "__main__":
     print("\n" + "="*60)
     print(full_message)
     
-    # 正式發送給 LINE
-    send_line_message(full_message)
+    # 正式發送給 telegram
+    send_telegram_message(full_message)
