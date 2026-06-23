@@ -29,6 +29,6 @@ jobs:
     - name: Execute Scraper Script
       env:
         # 將 GitHub Secrets 對應給 Python 程式讀取
-        LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-        LINE_TO_ID: ${{ secrets.LINE_TO_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python scraper.py
