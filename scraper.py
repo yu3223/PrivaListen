@@ -1,6 +1,6 @@
 import os
 import time
-import requests  # 🎯 記得在環境中 pip install requests
+import requests
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
@@ -14,7 +14,6 @@ TARGET_CATEGORIES = [
     "[全球時區ETF]-外幣交易"
 ]
 
-# 集中管理市場名稱與對應網址
 MARKETS_CONFIG = [
     {
         "name": "集中市場", 
@@ -27,7 +26,6 @@ MARKETS_CONFIG = [
 ]
 
 def parse_market_html(html, market_name):
-    """專門處理單一網頁的 HTML 解析、欄位搜尋與折溢價篩選"""
     soup = BeautifulSoup(html, "html.parser")
     market_data = {}
     
@@ -45,7 +43,6 @@ def parse_market_html(html, market_name):
         if not table:
             continue
             
-        # 動態尋找欄位索引 (代號名稱、折溢價、資料時間)
         headers = [th.text.strip() for th in table.find_all("th")]
         code_idx, premium_idx, time_idx = -1, -1, -1
         
@@ -63,7 +60,6 @@ def parse_market_html(html, market_name):
         tbody = table.find("tbody")
         rows = tbody.find_all("tr") if tbody else table.find_all("tr")[1:]
         
-        # 篩選門檻 (歐美時區 5%，其他 2%)
         threshold = 5.0 if "歐美時區" in category or "全球時區" in category else 2.0
         
         category_data = []
@@ -97,8 +93,8 @@ def parse_market_html(html, market_name):
     return market_data
 
 def scrape_all_markets():
-    """主程序：負責啟動瀏覽器並依序爬取所有設定的市場"""
     aggregated_data = {cat: [] for cat in TARGET_CATEGORIES}
+    errors = []  # 🌟 用來記錄連線失敗的錯誤訊息
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -107,9 +103,8 @@ def scrape_all_markets():
         
         for market in MARKETS_CONFIG:
             print(f"正在連線至 {market['name']} 網頁...")
-            page.goto(market['url'])
-            
             try:
+                page.goto(market['url'])
                 page.wait_for_selector("table", timeout=15000)
                 time.sleep(2) 
                 html = page.content()
@@ -121,17 +116,19 @@ def scrape_all_markets():
                     
                 print(f"✅ {market['name']} 爬取與篩選完成！")
             except Exception as e:
-                print(f"❌ {market['name']} 發生錯誤: {e}")
+                # 🌟 攔截錯誤並記錄下來，程式不會因此整個崩潰
+                error_msg = f"連線 {market['name']} 失敗 ({type(e).__name__})"
+                print(f"❌ {error_msg}")
+                errors.append(error_msg)
                 
         browser.close()
         
     final_data = {k: v for k, v in aggregated_data.items() if v}
-    return final_data
+    return final_data, errors
 
 def send_telegram_message(msg_text):
-    """發送訊息到 Telegram"""
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     
     if not bot_token or not chat_id:
         print("❌ 未設定 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID")
@@ -145,34 +142,54 @@ def send_telegram_message(msg_text):
     
     try:
         response = requests.post(url, json=payload)
-        response.raise_for_status()
-        print("✅ Telegram 發送成功！")
+        if response.status_code != 200:
+            print(f"❌ Telegram 發送失敗，狀態碼: {response.status_code}")
+            print(f"🔍 詳細錯誤原因: {response.text}")
+        else:
+            print("✅ Telegram 發送成功！")
     except Exception as e:
-        print(f"❌ Telegram 發送失敗: {e}")
+        print(f"❌ Telegram 網路連線錯誤: {e}")
 
 if __name__ == "__main__":
-    data = scrape_all_markets()
+    data, errors = scrape_all_markets()
+    full_message = ""
     
-    # 🎯 開始組裝全新的多行訊息字串
-    message_lines = ["📈 折溢價異常監控清單："]
-
-    for cat, items in data.items():
-        message_lines.append(f"\n📍 {cat}")
-        for item in items: 
-            # 將單一檔 ETF 拆解成多行排版，並在最後留一行空行 (\n) 區隔下一檔 ETF
-            etf_block = (
-                f"[{item['市場']}] \n"
-                f"{item['ETF代號/名稱']} \n"
-                f"折溢價: {item['預估折溢價幅度']} \n"
-                f"(資料時間: {item['資料時間']})\n"
-            )
-            message_lines.append(etf_block)
+    # === 情境判斷開始 ===
+    if errors and not data:
+        # 情境一：發生錯誤，且完全沒有抓到任何資料
+        full_message = "❌ [系統異常通知]\n證交所網頁連線失敗或發生技術性問題，本次無法抓取折溢價資料。\n\n詳細狀況：\n- " + "\n- ".join(errors)
+        
+    elif not data:
+        # 情境二：連線成功，但沒有任何一檔 ETF 超過門檻
+        full_message = "🟢 [盤面穩定]\n目前市場連線正常，閾值內無資料。"
+        
+    else:
+        # 情境三：連線成功，且有抓到超過門檻的 ETF
+        message_lines = []
+        
+        # 如果有部分市場失敗，但還是有抓到一些資料，加註警告
+        if errors:
+            message_lines.append("⚠️ [部分連線失敗]\n- " + "\n- ".join(errors) + "\n")
             
-    full_message = "\n".join(message_lines)
+        message_lines.append("📈 折溢價異常監控清單：")
+
+        for cat, items in data.items():
+            # 保持原本的純文字分類標題
+            message_lines.append(f"\n📍 {cat}")
+            for item in items: 
+                # 保持原本的半形括號排版
+                etf_block = (
+                    f"[{item['市場']}] \n"
+                    f"{item['ETF代號/名稱']} \n"
+                    f"折溢價: {item['預估折溢價幅度']} \n"
+                    f"(資料時間: {item['資料時間']})\n"
+                )
+                message_lines.append(etf_block)
+                
+        full_message = "\n".join(message_lines)
+    # === 情境判斷結束 ===
     
-    # 印在終端機看排版
     print("\n" + "="*60)
     print(full_message)
     
-    # 正式發送給 telegram
     send_telegram_message(full_message)
