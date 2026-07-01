@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+import traceback
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
@@ -93,28 +94,25 @@ def parse_market_html(html, market_name):
     return market_data
 
 def scrape_all_markets():
-    """主程序：負責啟動瀏覽器並依序爬取所有設定的市場，加入自動重試機制"""
+    """主程序：負責啟動瀏覽器並依序爬取，加入自動重試與詳細除錯機制"""
     aggregated_data = {cat: [] for cat in TARGET_CATEGORIES}
-    errors = []  # 🌟 用來記錄連線失敗的錯誤訊息
+    errors = []  
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
         
         for market in MARKETS_CONFIG:
-            max_retries = 3  # 🌟 設定最多重試次數為 3 次
+            max_retries = 3  
             
             for attempt in range(1, max_retries + 1):
                 print(f"正在連線至 {market['name']} 網頁... (第 {attempt} 次嘗試)")
                 try:
-                    # 🌟 寬容機制 1：設定網頁載入的最長等待時間為 30000 毫秒 (30 秒)
                     page.goto(market['url'], timeout=30000)
-                    
-                    # 🌟 寬容機制 2：等待表格出現也給予 30 秒的耐心
                     page.wait_for_selector("table", timeout=30000)
-                    
-                    # 🌟 稍微多等 3 秒，確保 JavaScript 完全把表格數字填入
                     time.sleep(3) 
                     html = page.content()
                     
@@ -124,20 +122,30 @@ def scrape_all_markets():
                         aggregated_data[cat].extend(items)
                         
                     print(f"✅ {market['name']} 爬取與篩選完成！")
-                    break  # 🌟 成功抓到資料，跳出重試迴圈，進行下一個市場
+                    break  
                     
                 except Exception as e:
                     print(f"⚠️ 第 {attempt} 次連線 {market['name']} 失敗: {type(e).__name__}")
                     
+                    # 🌟 除錯機制 1：印出完整的錯誤行號與軌跡
+                    print("🔍 錯誤詳細追蹤：")
+                    print(traceback.format_exc())
+                    
+                    # 🌟 除錯機制 2：拍下案發現場的照片
+                    try:
+                        screenshot_name = f"error_{market['name']}_attempt{attempt}.png"
+                        page.screenshot(path=screenshot_name)
+                        print(f"📸 已拍下案發現場照片並儲存為: {screenshot_name}")
+                    except Exception as snap_e:
+                        print(f"📸 截圖失敗: {snap_e}")
+                    
                     if attempt == max_retries:
-                        # 🌟 真的重試了 3 次都不行，才記錄到最終錯誤清單，發送 TG 錯誤通知
                         error_msg = f"連線 {market['name']} 失敗 ({type(e).__name__})"
                         print(f"❌ {error_msg} (已放棄)")
                         errors.append(error_msg)
                     else:
-                        # 🌟 自動重試機制：失敗後等 5 秒，再給它一次機會（就像你手動重跑一樣）
-                        print("⏳ 伺服器可能正在忙碌，等待 5 秒後進行重試...")
-                        time.sleep(5)
+                        print("⏳ 伺服器可能正在進行大批次更新，等待 30 秒後進行重試...")
+                        time.sleep(30)
                 
         browser.close()
         
